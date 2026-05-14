@@ -53,6 +53,27 @@ const Dashboard = () => {
     loadHistory()
     loadSynonyms()
     loadVocab()
+    
+    const handleStorageChange = (changes: Record<string, chrome.storage.StorageChange>, namespace: string) => {
+      if (namespace === "local") {
+        if (changes.historyList) {
+          setHistoryList(changes.historyList.newValue || [])
+        }
+        if (changes.vocabList) {
+          setVocabList(changes.vocabList.newValue || [])
+        }
+        if (changes.synonymList) {
+          setSynonymList(changes.synonymList.newValue || [])
+        }
+      }
+    }
+    
+    if (window.chrome?.storage?.onChanged) {
+      chrome.storage.onChanged.addListener(handleStorageChange)
+      return () => {
+        chrome.storage.onChanged.removeListener(handleStorageChange)
+      }
+    }
   }, [])
 
   const loadHistory = async () => {
@@ -181,21 +202,23 @@ const Dashboard = () => {
       "选择": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
       "填空": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
       "匹配": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
+      "阅读": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
       "Heading": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" }
     }
-    return styles[type] || { bg: "#f3f4f6", text: "#6b7280", border: "#e5e7eb" }
+    return styles[type] || { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" }
   }
 
   const getErrorCategoryStyle = (category: string) => {
     const styles: Record<string, { bg: string; text: string; border: string }> = {
       "NG/F混淆": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
+      "NG/F 混淆": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
       "同义替换": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
       "逻辑断层": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
       "过度联想": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
       "定位错误": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
       "词汇": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" }
     }
-    return styles[category] || { bg: "#f3f4f6", text: "#6b7280", border: "#e5e7eb" }
+    return styles[category] || { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" }
   }
 
   const errorCategoryData = useMemo(() => {

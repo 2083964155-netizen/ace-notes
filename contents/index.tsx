@@ -142,6 +142,7 @@ const Sidebar = ({ isOpen, onClose, onSaveSuccess, onRecallSuccess }: { isOpen: 
   const [customTags, setCustomTags] = useState<string[]>([])
   const [originalWord, setOriginalWord] = useState("")
   const [questionWord, setQuestionWord] = useState("")
+  const [vocabList, setVocabList] = useState<VocabRecord[]>([])
   const [synonymList, setSynonymList] = useState<SynonymRecord[]>([])
 
   const autoDetectType = (text: string) => {
@@ -308,9 +309,15 @@ const Sidebar = ({ isOpen, onClose, onSaveSuccess, onRecallSuccess }: { isOpen: 
       setHistoryList(history)
       
       if (window.chrome?.storage?.local) {
-        window.chrome.storage.local.get("customTags", (result) => {
+        window.chrome.storage.local.get(["customTags", "vocabList", "synonymList"], (result) => {
           if (result.customTags && Array.isArray(result.customTags)) {
             setCustomTags(result.customTags)
+          }
+          if (result.vocabList && Array.isArray(result.vocabList)) {
+            setVocabList(result.vocabList)
+          }
+          if (result.synonymList && Array.isArray(result.synonymList)) {
+            setSynonymList(result.synonymList)
           }
         })
       }
@@ -319,8 +326,16 @@ const Sidebar = ({ isOpen, onClose, onSaveSuccess, onRecallSuccess }: { isOpen: 
     initData()
     
     const handleStorageChange = (changes: Record<string, chrome.storage.StorageChange>, namespace: string) => {
-      if (namespace === "local" && changes.historyList) {
-        loadHistory().then(setHistoryList)
+      if (namespace === "local") {
+        if (changes.historyList) {
+          loadHistory().then(setHistoryList)
+        }
+        if (changes.vocabList) {
+          setVocabList(changes.vocabList.newValue || [])
+        }
+        if (changes.synonymList) {
+          setSynonymList(changes.synonymList.newValue || [])
+        }
       }
     }
     
