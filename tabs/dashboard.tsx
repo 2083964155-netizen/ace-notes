@@ -1,6 +1,24 @@
 import { useState, useEffect, useMemo } from "react"
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis } from "recharts"
 
+interface SynonymRecord {
+  id: string;
+  timestamp: number;
+  originalWord: string;
+  questionWord: string;
+  index: string;
+  context: string;
+}
+
+interface VocabRecord {
+  id: string;
+  timestamp: number;
+  word: string;
+  meaning: string;
+  context: string;
+  index: string;
+}
+
 interface HistoryRecord {
   id: string
   index: string
@@ -16,6 +34,8 @@ interface HistoryRecord {
   title: string
   scrollY: number
   timestamp: number
+  synonyms?: SynonymRecord[]
+  vocabulary?: VocabRecord[]
 }
 
 const Dashboard = () => {
@@ -26,9 +46,13 @@ const Dashboard = () => {
   const [editingStates, setEditingStates] = useState<Map<string, { field: string; value: string }>>(new Map())
   const [showToast, setShowToast] = useState(false)
   const [toastMessage, setToastMessage] = useState("")
+  const [synonymList, setSynonymList] = useState<SynonymRecord[]>([])
+  const [vocabList, setVocabList] = useState<VocabRecord[]>([])
 
   useEffect(() => {
     loadHistory()
+    loadSynonyms()
+    loadVocab()
   }, [])
 
   const loadHistory = async () => {
@@ -38,6 +62,26 @@ const Dashboard = () => {
       })
       const data = result as { historyList?: HistoryRecord[] }
       setHistoryList(data.historyList || [])
+    }
+  }
+
+  const loadSynonyms = async () => {
+    if (window.chrome?.storage?.local) {
+      const result = await new Promise((resolve) => {
+        window.chrome.storage.local.get("synonymList", resolve)
+      })
+      const data = result as { synonymList?: SynonymRecord[] }
+      setSynonymList(data.synonymList || [])
+    }
+  }
+
+  const loadVocab = async () => {
+    if (window.chrome?.storage?.local) {
+      const result = await new Promise((resolve) => {
+        window.chrome.storage.local.get("vocabList", resolve)
+      })
+      const data = result as { vocabList?: VocabRecord[] }
+      setVocabList(data.vocabList || [])
     }
   }
 
@@ -133,25 +177,25 @@ const Dashboard = () => {
 
   const getQuestionTypeStyle = (type: string) => {
     const styles: Record<string, { bg: string; text: string; border: string }> = {
-      "判断": { bg: "#FEF3C7", text: "#D97706", border: "#FBBF24" },
-      "选择": { bg: "#DBEAFE", text: "#1E40AF", border: "#60A5FA" },
-      "填空": { bg: "#D1FAE5", text: "#059669", border: "#34D399" },
-      "匹配": { bg: "#EDE9FE", text: "#7C3AED", border: "#A78BFA" },
-      "Heading": { bg: "#FCE7F3", text: "#DB2777", border: "#F472B6" }
+      "判断": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
+      "选择": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
+      "填空": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
+      "匹配": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
+      "Heading": { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" }
     }
-    return styles[type] || { bg: "#F3F4F6", text: "#374151", border: "#D1D5DB" }
+    return styles[type] || { bg: "#f3f4f6", text: "#6b7280", border: "#e5e7eb" }
   }
 
   const getErrorCategoryStyle = (category: string) => {
     const styles: Record<string, { bg: string; text: string; border: string }> = {
-      "NG/F混淆": { bg: "#FEE2E2", text: "#DC2626", border: "#FCA5A5" },
-      "同义替换": { bg: "#D1FAE5", text: "#059669", border: "#34D399" },
-      "逻辑断层": { bg: "#FEF3C7", text: "#D97706", border: "#FBBF24" },
-      "过度联想": { bg: "#E0E7FF", text: "#4338CA", border: "#818CF8" },
-      "定位错误": { bg: "#DBEAFE", text: "#1E40AF", border: "#60A5FA" },
-      "词汇": { bg: "#FCE7F3", text: "#DB2777", border: "#F472B6" }
+      "NG/F混淆": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
+      "同义替换": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
+      "逻辑断层": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
+      "过度联想": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
+      "定位错误": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" },
+      "词汇": { bg: "#fff7ed", text: "#ea580c", border: "#fed7aa" }
     }
-    return styles[category] || { bg: "#F3F4F6", text: "#374151", border: "#D1D5DB" }
+    return styles[category] || { bg: "#f3f4f6", text: "#6b7280", border: "#e5e7eb" }
   }
 
   const errorCategoryData = useMemo(() => {
@@ -216,53 +260,65 @@ const Dashboard = () => {
     const today = new Date()
     const year = today.getFullYear()
     const month = today.getMonth()
-    
+
     const firstDay = new Date(year, month, 1)
     const lastDay = new Date(year, month + 1, 0)
-    
+
     const daysInMonth = lastDay.getDate()
     const startDayOfWeek = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1
-    
-    const dates: { date: string; day: number; hasRecord: boolean; isCurrentMonth: boolean }[] = []
-    
+
+    const recordCountMap: Record<string, number> = {}
+    historyList.forEach(r => {
+      const d = new Date(r.timestamp)
+      const dateStr = d.toISOString().slice(0, 10)
+      recordCountMap[dateStr] = (recordCountMap[dateStr] || 0) + 1
+    })
+
+    const dates: { date: string; day: number; recordCount: number; isCurrentMonth: boolean }[] = []
+
     for (let i = startDayOfWeek - 1; i >= 0; i--) {
       const d = new Date(year, month, -i)
       dates.push({
         date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
         day: d.getDate(),
-        hasRecord: false,
+        recordCount: 0,
         isCurrentMonth: false
       })
     }
-    
+
     for (let day = 1; day <= daysInMonth; day++) {
       const d = new Date(year, month, day)
       const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-      const hasRecord = historyList.some(r => {
-        const recordDate = new Date(r.timestamp)
-        return recordDate.toISOString().slice(0, 10) === dateStr
-      })
+      const recordCount = recordCountMap[dateStr] || 0
       dates.push({
         date: dateStr,
         day,
-        hasRecord,
+        recordCount,
         isCurrentMonth: true
       })
     }
-    
+
     const remainingDays = 42 - dates.length
     for (let i = 1; i <= remainingDays; i++) {
       const d = new Date(year, month + 1, i)
       dates.push({
         date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
         day: d.getDate(),
-        hasRecord: false,
+        recordCount: 0,
         isCurrentMonth: false
       })
     }
-    
+
     return dates
   }, [historyList])
+
+  const getDotColor = (recordCount: number) => {
+    if (recordCount === 0) return "transparent"
+    if (recordCount === 1) return "#86efac"
+    if (recordCount === 2) return "#22c55e"
+    if (recordCount === 3) return "#16a34a"
+    return "#15803d"
+  }
 
   const getCategoryColor = (category: string) => {
     const colorMap: Record<string, string> = {
@@ -281,8 +337,16 @@ const Dashboard = () => {
   const navItems = [
     { id: "kanban", label: "概览看板", icon: "📊" },
     { id: "wrongBook", label: "错题库", icon: "📚" },
+    { id: "corpus", label: "语料中心", icon: "📖" },
     { id: "settings", label: "设置", icon: "⚙️" }
   ]
+
+  const corpusTabs = [
+    { id: "vocab", label: "生词本" },
+    { id: "synonym", label: "同义替换" }
+  ]
+
+  const [activeCorpusTab, setActiveCorpusTab] = useState("vocab")
 
   const handleCategoryCardClick = () => {
     if (mostFrequentCategory) {
@@ -301,7 +365,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", width: "100vw", backgroundColor: "#f8fafc" }}>
+    <div style={{ display: "flex", height: "100vh", width: "100%", backgroundColor: "#f8fafc", overflow: "hidden", boxSizing: "border-box" }}>
       <nav style={{
         width: "240px",
         backgroundColor: "#ffffff",
@@ -311,14 +375,15 @@ const Dashboard = () => {
         flexDirection: "column",
         borderRight: "1px solid #f1f5f9"
       }}>
-        <div style={{ padding: "24px", borderBottom: "1px solid #f1f5f9" }}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", flexShrink: 0 }}>
           <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "#1e293b" }}>
             ✨ ACE notes
           </h1>
           <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, fontWeight: 500 }}>v2.0</p>
         </div>
 
-        <div style={{ marginTop: 0, flex: 1 }}>
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+          <div style={{ flexShrink: 0 }}>
           {navItems.map((item) => (
             <button
               key={item.id}
@@ -330,7 +395,7 @@ const Dashboard = () => {
               }}
               style={{
                 width: "100%",
-                padding: "14px 24px",
+                padding: "10px 24px",
                 textAlign: "left",
                 backgroundColor: activeNav === item.id ? "#eff6ff" : "transparent",
                 border: "none",
@@ -348,46 +413,53 @@ const Dashboard = () => {
               <span>{item.label}</span>
             </button>
           ))}
+          </div>
         </div>
 
-        <div style={{ padding: "16px", borderTop: "1px solid #f1f5f9", backgroundColor: "#fafafa" }}>
-          <h3 style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        <div style={{ padding: "12px", borderTop: "1px solid #f1f5f9", backgroundColor: "#fafafa", flexShrink: 0 }}>
+          <h3 style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             📅 日历打卡
           </h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", marginBottom: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "1px", marginBottom: 4 }}>
             {["一", "二", "三", "四", "五", "六", "日"].map((day, idx) => (
-              <span key={idx} style={{ fontSize: 10, color: "#94a3b8", textAlign: "center", padding: "4px 0" }}>{day}</span>
+              <span key={idx} style={{ fontSize: 9, color: "#94a3b8", textAlign: "center", padding: "2px 0" }}>{day}</span>
             ))}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "1px" }}>
             {monthlyCalendarData.map((item, idx) => (
-              <div 
-                key={idx} 
-                style={{ 
-                  display: "flex", 
+              <div
+                key={idx}
+                style={{
+                  display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  padding: "4px 0",
+                  padding: "2px 1px",
                   borderRadius: 4,
-                  backgroundColor: !item.isCurrentMonth ? "transparent" : (item.hasRecord ? "#f0fdf4" : "transparent"),
-                  cursor: item.isCurrentMonth ? "pointer" : "default"
+                  backgroundColor: item.isCurrentMonth && item.recordCount > 0 ? "#f0fdf4" : "transparent",
+                  cursor: item.isCurrentMonth ? "pointer" : "default",
+                  minHeight: 26
                 }}
               >
-                <span style={{ 
-                  fontSize: 11, 
-                  color: item.isCurrentMonth ? (item.hasRecord ? "#059669" : "#64748b") : "#cbd5e1",
-                  fontWeight: item.hasRecord ? 600 : 400
+                <span style={{
+                  fontSize: 10,
+                  color: item.isCurrentMonth ? (item.recordCount > 0 ? "#166534" : "#64748b") : "#e2e8f0",
+                  fontWeight: item.recordCount > 0 ? 600 : 400
                 }}>
                   {item.day}
                 </span>
-                {item.isCurrentMonth && item.hasRecord && (
-                  <div style={{ 
-                    width: 6, 
-                    height: 6, 
-                    borderRadius: "50%", 
-                    backgroundColor: "#10b981",
-                    marginTop: 2
-                  }} />
+                {item.isCurrentMonth && item.recordCount > 0 && (
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      backgroundColor: getDotColor(item.recordCount),
+                      marginTop: 2
+                    }}
+                  />
+                )}
+                {item.isCurrentMonth && item.recordCount === 0 && (
+                  <div style={{ width: 6, height: 6, marginTop: 2 }} />
                 )}
               </div>
             ))}
@@ -395,7 +467,8 @@ const Dashboard = () => {
         </div>
       </nav>
 
-      <main style={{ flex: 1, padding: "24px", overflowY: "auto" }}>
+      <main style={{ flex: 1, padding: "24px", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, overflow: "auto" }}>
         {activeNav === "kanban" && (
           <div>
             <div style={{ marginBottom: 20 }}>
@@ -681,17 +754,20 @@ const Dashboard = () => {
                       }}
                       onClick={() => toggleCard(record.id)}
                     >
-                      <div style={{ padding: 16 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>
-                              {record.index || "无索引"}
-                            </span>
+                      <div style={{ padding: "12px 16px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
+                                {record.index || "无索引"}
+                              </span>
+                              <span style={{ fontSize: 10, color: "#cbd5e1" }}>{formatDate(record.timestamp)}</span>
+                            </div>
                             {record.questionType && (
                               <span style={{
-                                padding: "4px 10px",
-                                borderRadius: 16,
-                                fontSize: 11,
+                                padding: "3px 8px",
+                                borderRadius: 12,
+                                fontSize: 10,
                                 backgroundColor: typeStyle.bg,
                                 color: typeStyle.text,
                                 fontWeight: 500,
@@ -702,9 +778,9 @@ const Dashboard = () => {
                             )}
                             {record.errorCategory && (
                               <span style={{
-                                padding: "4px 10px",
-                                borderRadius: 16,
-                                fontSize: 11,
+                                padding: "3px 8px",
+                                borderRadius: 12,
+                                fontSize: 10,
                                 backgroundColor: catStyle.bg,
                                 color: catStyle.text,
                                 fontWeight: 500,
@@ -714,25 +790,34 @@ const Dashboard = () => {
                               </span>
                             )}
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleRecall(record)
                               }}
                               style={{
-                                padding: "6px 10px",
-                                backgroundColor: "#eff6ff",
-                                border: "1px solid #bfdbfe",
-                                borderRadius: 6,
-                                cursor: "pointer",
-                                color: "#2563eb",
-                                transition: "all 0.15s",
+                                width: 32,
+                                height: 32,
                                 display: "flex",
                                 alignItems: "center",
-                                gap: 4
+                                justifyContent: "center",
+                                borderRadius: 6,
+                                backgroundColor: "transparent",
+                                border: "none",
+                                cursor: "pointer",
+                                color: "#6b7280",
+                                transition: "all 0.15s"
                               }}
                               title="回到现场"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = "#f3f4f6"
+                                e.currentTarget.style.color = "#374151"
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = "transparent"
+                                e.currentTarget.style.color = "#6b7280"
+                              }}
                             >
                               <span>📍</span>
                             </button>
@@ -742,15 +827,27 @@ const Dashboard = () => {
                                 startEdit(record.id, "myQuestion", record.myQuestion || "")
                               }}
                               style={{
-                                padding: "6px",
-                                backgroundColor: "#fef3c7",
-                                border: "1px solid #fbbf24",
+                                width: 32,
+                                height: 32,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
                                 borderRadius: 6,
+                                backgroundColor: "transparent",
+                                border: "none",
                                 cursor: "pointer",
-                                color: "#d97706",
+                                color: "#6b7280",
                                 transition: "all 0.15s"
                               }}
                               title="编辑笔记"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = "#f3f4f6"
+                                e.currentTarget.style.color = "#374151"
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = "transparent"
+                                e.currentTarget.style.color = "#6b7280"
+                              }}
                             >
                               ✏️
                             </button>
@@ -762,20 +859,32 @@ const Dashboard = () => {
                                 }
                               }}
                               style={{
-                                padding: "6px",
-                                backgroundColor: "#fee2e2",
-                                border: "1px solid #fca5a5",
+                                width: 32,
+                                height: 32,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
                                 borderRadius: 6,
+                                backgroundColor: "transparent",
+                                border: "none",
                                 cursor: "pointer",
-                                color: "#dc2626",
+                                color: "#6b7280",
                                 transition: "all 0.15s"
                               }}
                               title="删除记录"
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = "#fee2e2"
+                                e.currentTarget.style.color = "#dc2626"
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = "transparent"
+                                e.currentTarget.style.color = "#6b7280"
+                              }}
                             >
                               🗑️
                             </button>
-                            <span style={{ 
-                              fontSize: 12, 
+                            <span style={{
+                              fontSize: 12,
                               color: "#94a3b8",
                               transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
                               transition: "transform 0.15s"
@@ -783,9 +892,6 @@ const Dashboard = () => {
                               ▼
                             </span>
                           </div>
-                        </div>
-                        <div style={{ marginTop: 6, fontSize: 12, color: "#94a3b8" }}>
-                          日期: {formatDate(record.timestamp)}
                         </div>
                       </div>
 
@@ -977,6 +1083,149 @@ const Dashboard = () => {
           </div>
         )}
 
+        {activeNav === "corpus" && (
+          <div>
+            <div style={{ marginBottom: 24 }}>
+              <h2 style={{ fontSize: 24, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                📖 语料中心
+              </h2>
+              <p style={{ fontSize: 14, color: "#64748b", marginTop: 4 }}>
+                统一管理生词与同义替换
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 24, borderBottom: "1px solid #f1f5f9", paddingBottom: 12 }}>
+              {corpusTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveCorpusTab(tab.id)}
+                  style={{
+                    padding: "8px 16px",
+                    backgroundColor: activeCorpusTab === tab.id ? "#eff6ff" : "transparent",
+                    border: "none",
+                    borderRadius: 6,
+                    fontSize: 14,
+                    fontWeight: activeCorpusTab === tab.id ? 600 : 500,
+                    color: activeCorpusTab === tab.id ? "#2563eb" : "#64748b",
+                    cursor: "pointer",
+                    transition: "all 0.15s"
+                  }}
+                >
+                  {tab.label}
+                  {tab.id === "vocab" && ` (${vocabList.length})`}
+                  {tab.id === "synonym" && ` (${synonymList.length})`}
+                </button>
+              ))}
+            </div>
+
+            {activeCorpusTab === "vocab" && (
+              <div>
+                {vocabList.length === 0 ? (
+                  <div style={{
+                    backgroundColor: "#ffffff",
+                    borderRadius: 12,
+                    padding: 48,
+                    textAlign: "center",
+                    border: "1px solid #f1f5f9"
+                  }}>
+                    <div style={{ fontSize: 48, marginBottom: 16 }}>📖</div>
+                    <p style={{ fontSize: 16, color: "#64748b", fontWeight: 500 }}>暂无生词</p>
+                    <p style={{ fontSize: 13, color: "#94a3b8", marginTop: 8 }}>在侧边栏选择「词汇」错因标签时会自动记录</p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {vocabList.map((vocab) => (
+                      <div key={vocab.id} style={{
+                        backgroundColor: "#ffffff",
+                        borderRadius: 12,
+                        padding: 20,
+                        border: "1px solid #f1f5f9"
+                      }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>
+                          {vocab.word} <span style={{ fontSize: 16, fontWeight: 500, color: "#059669" }}>{vocab.meaning}</span>
+                        </div>
+                        {vocab.context && (
+                          <div style={{ marginTop: 12, fontSize: 13, color: "#9ca3af", lineHeight: 1.6 }}>
+                            {vocab.context}
+                          </div>
+                        )}
+                        {vocab.index && (
+                          <div style={{ marginTop: 8, display: "inline-block", fontSize: 11, padding: "4px 8px", backgroundColor: "#f1f5f9", color: "#64748b", borderRadius: 6, fontWeight: 500 }}>
+                            {vocab.index}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeCorpusTab === "synonym" && (
+              <div>
+                {synonymList.length === 0 ? (
+                  <div style={{
+                    backgroundColor: "#ffffff",
+                    borderRadius: 12,
+                    padding: 48,
+                    textAlign: "center",
+                    border: "1px solid #f1f5f9"
+                  }}>
+                    <div style={{ fontSize: 48, marginBottom: 16 }}>🔄</div>
+                    <p style={{ fontSize: 16, color: "#64748b", fontWeight: 500 }}>暂无同义替换</p>
+                    <p style={{ fontSize: 13, color: "#94a3b8", marginTop: 8 }}>在侧边栏选择「同义替换」错因标签时会自动记录</p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {synonymList.map((syn) => (
+                      <div key={syn.id} style={{
+                        backgroundColor: "#ffffff",
+                        borderRadius: 12,
+                        padding: 20,
+                        border: "1px solid #f1f5f9"
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                          <div style={{ flex: 1, minWidth: 150 }}>
+                            <div style={{ fontSize: 16, fontWeight: 600, color: "#0f172a" }}>
+                              {syn.originalWord}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, backgroundColor: "#f1f5f9", borderRadius: 8 }}>
+                            <span style={{ fontSize: 16, color: "#64748b" }}>→</span>
+                          </div>
+                          <div style={{ flex: 1, minWidth: 150 }}>
+                            <div style={{ fontSize: 16, fontWeight: 600, color: "#2563eb" }}>
+                              {syn.questionWord}
+                            </div>
+                          </div>
+                          {syn.index && (
+                            <span style={{
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              backgroundColor: "#eff6ff",
+                              color: "#2563eb",
+                              borderRadius: 6,
+                              fontWeight: 500,
+                              cursor: "pointer"
+                            }}>
+                              {syn.index}
+                            </span>
+                          )}
+                        </div>
+                        {syn.context && (
+                          <div style={{ marginTop: 12, fontSize: 13, color: "#9ca3af", lineHeight: 1.6 }}>
+                            {syn.context}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeNav === "settings" && (
           <div>
             <h2 style={{ fontSize: 24, fontWeight: 700, color: "#0f172a", marginBottom: 20 }}>
@@ -1037,6 +1286,7 @@ const Dashboard = () => {
             </div>
           </div>
         )}
+        </div>
       </main>
 
       {showToast && (

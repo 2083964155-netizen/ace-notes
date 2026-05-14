@@ -13,6 +13,24 @@ declare global {
   }
 }
 
+interface SynonymRecord {
+  id: string;
+  timestamp: number;
+  originalWord: string;
+  questionWord: string;
+  index: string;
+  context: string;
+}
+
+interface VocabRecord {
+  id: string;
+  timestamp: number;
+  word: string;
+  meaning: string;
+  context: string;
+  index: string;
+}
+
 interface HistoryRecord {
   id: string;
   timestamp: number;
@@ -28,6 +46,8 @@ interface HistoryRecord {
   aiResponse: string;
   questionType: string;
   errorCategory: string;
+  synonyms?: SynonymRecord[];
+  vocabulary?: VocabRecord[];
 }
 
 const Badge = ({ text, color = "blue" }: { text: string; color?: "blue" | "red" | "green" | "yellow" }) => {
@@ -120,6 +140,9 @@ const Sidebar = ({ isOpen, onClose, onSaveSuccess, onRecallSuccess }: { isOpen: 
   const [questionType, setQuestionType] = useState("")
   const [errorCategory, setErrorCategory] = useState("")
   const [customTags, setCustomTags] = useState<string[]>([])
+  const [originalWord, setOriginalWord] = useState("")
+  const [questionWord, setQuestionWord] = useState("")
+  const [synonymList, setSynonymList] = useState<SynonymRecord[]>([])
 
   const autoDetectType = (text: string) => {
     const upperText = text.toUpperCase()
@@ -402,6 +425,42 @@ const Sidebar = ({ isOpen, onClose, onSaveSuccess, onRecallSuccess }: { isOpen: 
     console.log("Saving data...", record)
     saveHistory(record)
     loadHistory().then(setHistoryList)
+
+    // 基于错因标签自动摘取到语料中心
+    if (errorCategory === "词汇" && myQuestion.trim()) {
+      // 生词：myQuestion 作为单词和释义，evidence 作为语境
+      const newVocab: VocabRecord = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        word: myQuestion.split(/\s|，|,|：|:|；|;|\n/)[0] || "生词",
+        meaning: myQuestion,
+        index: parsedIndex || "",
+        context: evidence
+      }
+      const updatedVocabList = [...vocabList, newVocab]
+      setVocabList(updatedVocabList)
+      if (window.chrome?.storage?.local) {
+        chrome.storage.local.set({ vocabList: updatedVocabList })
+      }
+    }
+
+    if (errorCategory === "同义替换" && question.trim() && evidence.trim()) {
+      // 同义替换：question 作为题目词，evidence 作为原文词
+      const newSynonym: SynonymRecord = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        originalWord: evidence.slice(0, 100),
+        questionWord: question,
+        index: parsedIndex || "",
+        context: evidence
+      }
+      const updatedSynonymList = [...synonymList, newSynonym]
+      setSynonymList(updatedSynonymList)
+      if (window.chrome?.storage?.local) {
+        chrome.storage.local.set({ synonymList: updatedSynonymList })
+      }
+    }
+
     onSaveSuccess()
     setEvidence("")
     setQuestion("")
@@ -595,13 +654,13 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
           right: 0,
           width: 380,
           height: "100vh",
-          backgroundColor: "rgba(255, 255, 255, 0.98)",
+          backgroundColor: "#ffffff",
           backdropFilter: "blur(20px)",
           WebkitBackdropFilter: "blur(20px)",
           zIndex: 9999,
           transform: isOpen ? "translateX(0)" : "translateX(100%)",
           transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-          boxShadow: "-8px 0 40px rgba(0, 0, 0, 0.08)",
+          boxShadow: "-8px 0 40px rgba(0, 0, 0, 0.06)",
           overflowY: "auto",
           overflowX: "hidden"
         }}
@@ -612,7 +671,7 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
             top: 0,
             zIndex: 10,
             padding: "16px 20px",
-            backgroundColor: "rgba(255, 255, 255, 0.95)",
+            backgroundColor: "rgba(255, 255, 255, 0.98)",
             backdropFilter: "blur(12px)",
             borderBottom: "1px solid #f1f5f9",
             display: "flex",
@@ -621,25 +680,32 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#0f172a", letterSpacing: "-0.01em" }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#1e293b", letterSpacing: "-0.01em" }}>
               ACE notes
             </h2>
             <button
               onClick={() => setShowHistory(!showHistory)}
               style={{
-                background: showHistory ? "#3b82f6" : "#f8fafc",
-                border: "1px solid",
-                borderColor: showHistory ? "#3b82f6" : "#e2e8f0",
-                borderRadius: 20,
-                padding: "4px 12px",
+                height: 32,
+                padding: "0 12px",
+                backgroundColor: showHistory ? "#eff6ff" : "#f9fafb",
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
                 fontSize: 12,
                 cursor: "pointer",
-                color: showHistory ? "white" : "#64748b",
+                color: showHistory ? "#2563eb" : "#4b5563",
                 display: "flex",
                 alignItems: "center",
+                justifyContent: "center",
                 gap: 4,
-                transition: "all 0.2s",
+                transition: "all 0.15s",
                 fontWeight: 500
+              }}
+              onMouseEnter={(e) => {
+                if (!showHistory) e.currentTarget.style.backgroundColor = "#f3f4f6"
+              }}
+              onMouseLeave={(e) => {
+                if (!showHistory) e.currentTarget.style.backgroundColor = "#f9fafb"
               }}
             >
               {showHistory ? "← 返回" : "📚 历史"}
@@ -649,33 +715,50 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
             <button
               onClick={() => chrome.runtime.sendMessage({ action: "open_dashboard" })}
               style={{
-                fontSize: 14,
-                padding: "6px 10px",
-                backgroundColor: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                borderRadius: 8,
+                height: 32,
+                padding: "0 12px",
+                backgroundColor: "#f9fafb",
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
                 cursor: "pointer",
-                color: "#64748b",
-                transition: "all 0.2s"
+                color: "#4b5563",
+                transition: "all 0.15s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
               }}
               title="全屏复习"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "#f3f4f6"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "#f9fafb"
+              }}
             >
               ↗
             </button>
             <button
               onClick={onClose}
               style={{
-                background: "none",
-                border: "1px solid #e2e8f0",
-                borderRadius: 8,
-                fontSize: 14,
+                height: 32,
+                padding: "0 12px",
+                backgroundColor: "#f9fafb",
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
                 cursor: "pointer",
-                color: "#94a3b8",
-                padding: "6px 10px",
-                lineHeight: 1,
-                transition: "all 0.2s"
+                color: "#4b5563",
+                transition: "all 0.15s",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
               }}
               title="关闭"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "#f3f4f6"
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "#f9fafb"
+              }}
             >
               ×
             </button>
@@ -796,23 +879,23 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
             </div>
           ) : (
             <>
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ marginBottom: 20, paddingTop: 4 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input
                     type="text"
                     value={index}
                     onChange={(e) => setIndex(e.target.value)}
-                    placeholder="C18-T1-P1-Q5"
+                    placeholder="题号 (Index)"
                     style={{
-                      width: 100,
+                      width: 96,
                       height: 32,
                       padding: "0 10px",
-                      border: "1px solid #e2e8f0",
+                      border: "1px solid #e5e7eb",
                       borderRadius: 6,
                       fontSize: 13,
                       boxSizing: "border-box",
-                      backgroundColor: "#f8fafc",
-                      color: "#0f172a",
+                      backgroundColor: "#f9fafb",
+                      color: "#374151",
                       fontWeight: 500
                     }}
                   />
@@ -824,24 +907,62 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                       }
                     }}
                     style={{
-                      fontSize: 11,
-                      padding: "6px 10px",
-                      backgroundColor: "#f8fafc",
-                      border: "1px solid #e2e8f0",
+                      height: 32,
+                      padding: "0 10px",
+                      backgroundColor: "#f9fafb",
+                      border: "1px solid #e5e7eb",
                       borderRadius: 6,
                       cursor: "pointer",
-                      color: "#64748b"
+                      color: "#6b7280",
+                      fontSize: 11,
+                      transition: "all 0.15s"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f3f4f6"
+                      e.currentTarget.style.color = "#374151"
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f9fafb"
+                      e.currentTarget.style.color = "#6b7280"
                     }}
                   >
-                    同步选中
+                    同步粘贴
                   </button>
                 </div>
               </div>
 
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 6, display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  题目
-                </label>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    题目
+                  </label>
+                  <button
+                    onClick={() => {
+                      const selection = window.getSelection()
+                      if (selection && selection.toString()) {
+                        setQuestion(selection.toString().trim())
+                      }
+                    }}
+                    style={{
+                      fontSize: 11,
+                      padding: "2px 6px",
+                      backgroundColor: "transparent",
+                      border: "none",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      color: "#9ca3af",
+                      transition: "all 0.15s"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = "#6b7280"
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = "#9ca3af"
+                    }}
+                  >
+                    📋 同步粘贴
+                  </button>
+                </div>
                 <textarea
                   value={question}
                   onChange={(e) => handleQuestionChange(e.target.value)}
@@ -850,22 +971,51 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                   style={{
                     width: "100%",
                     padding: 10,
-                    border: "1px solid #e2e8f0",
+                    border: "1px solid #e5e7eb",
                     borderRadius: 8,
                     fontSize: 13,
                     resize: "vertical",
                     boxSizing: "border-box",
                     fontFamily: "inherit",
-                    backgroundColor: "white",
-                    lineHeight: 1.5
+                    backgroundColor: "#f9fafb",
+                    color: "#374151",
+                    lineHeight: 1.6
                   }}
                 />
               </div>
 
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 6, display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  答案
-                </label>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    答案
+                  </label>
+                  <button
+                    onClick={() => {
+                      const selection = window.getSelection()
+                      if (selection && selection.toString()) {
+                        setAnswer(selection.toString().trim())
+                      }
+                    }}
+                    style={{
+                      fontSize: 11,
+                      padding: "2px 6px",
+                      backgroundColor: "transparent",
+                      border: "none",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      color: "#9ca3af",
+                      transition: "all 0.15s"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = "#6b7280"
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = "#9ca3af"
+                    }}
+                  >
+                    📋 同步粘贴
+                  </button>
+                </div>
                 <textarea
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
@@ -873,23 +1023,52 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                   rows={1}
                   style={{
                     width: "100%",
-                    padding: 8,
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 6,
+                    padding: 10,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 8,
                     fontSize: 13,
                     resize: "none",
                     boxSizing: "border-box",
                     fontFamily: "inherit",
-                    backgroundColor: "#f8fafc",
-                    lineHeight: 1.5
+                    backgroundColor: "#f9fafb",
+                    color: "#374151",
+                    lineHeight: 1.6
                   }}
                 />
               </div>
 
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 6, display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              原文证据
-            </label>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                原文证据
+              </label>
+              <button
+                onClick={() => {
+                  const selection = window.getSelection()
+                  if (selection && selection.toString()) {
+                    setEvidence(selection.toString().trim())
+                  }
+                }}
+                style={{
+                  fontSize: 11,
+                  padding: "2px 6px",
+                  backgroundColor: "transparent",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  color: "#9ca3af",
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "#6b7280"
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "#9ca3af"
+                }}
+              >
+                📋 同步粘贴
+              </button>
+            </div>
             <textarea
               value={evidence}
               onChange={(e) => setEvidence(e.target.value)}
@@ -898,22 +1077,51 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                 width: "100%",
                 height: 90,
                 padding: 10,
-                border: "1px solid #e2e8f0",
+                border: "1px solid #e5e7eb",
                 borderRadius: 8,
                 fontSize: 13,
                 resize: "vertical",
                 boxSizing: "border-box",
                 fontFamily: "inherit",
-                backgroundColor: "white",
-                lineHeight: 1.5
+                backgroundColor: "#f9fafb",
+                color: "#374151",
+                lineHeight: 1.6
               }}
             />
           </div>
 
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 6, display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              解析
-            </label>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                解析
+              </label>
+              <button
+                onClick={() => {
+                  const selection = window.getSelection()
+                  if (selection && selection.toString()) {
+                    handleReferenceChange(selection.toString().trim())
+                  }
+                }}
+                style={{
+                  fontSize: 11,
+                  padding: "2px 6px",
+                  backgroundColor: "transparent",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  color: "#9ca3af",
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "#6b7280"
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "#9ca3af"
+                }}
+              >
+                📋 同步粘贴
+              </button>
+            </div>
             <textarea
               value={reference}
               onChange={(e) => handleReferenceChange(e.target.value)}
@@ -922,22 +1130,51 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                 width: "100%",
                 height: 70,
                 padding: 10,
-                border: "1px solid #e2e8f0",
+                border: "1px solid #e5e7eb",
                 borderRadius: 8,
                 fontSize: 13,
                 resize: "vertical",
                 boxSizing: "border-box",
                 fontFamily: "inherit",
-                backgroundColor: "white",
-                lineHeight: 1.5
+                backgroundColor: "#f9fafb",
+                color: "#374151",
+                lineHeight: 1.6
               }}
             />
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 6, display: "block", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              我的疑问 / 心得
-            </label>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                我的疑问 / 心得
+              </label>
+              <button
+                onClick={() => {
+                  const selection = window.getSelection()
+                  if (selection && selection.toString()) {
+                    setMyQuestion(selection.toString().trim())
+                  }
+                }}
+                style={{
+                  fontSize: 11,
+                  padding: "2px 6px",
+                  backgroundColor: "transparent",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  color: "#9ca3af",
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "#6b7280"
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "#9ca3af"
+                }}
+              >
+                📋 同步粘贴
+              </button>
+            </div>
             <textarea
               value={myQuestion}
               onChange={(e) => setMyQuestion(e.target.value)}
@@ -946,14 +1183,15 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                 width: "100%",
                 height: 60,
                 padding: 10,
-                border: "1px solid #e2e8f0",
+                border: "1px solid #e5e7eb",
                 borderRadius: 8,
                 fontSize: 13,
                 resize: "vertical",
                 boxSizing: "border-box",
                 fontFamily: "inherit",
-                backgroundColor: "#fafafa",
-                lineHeight: 1.5
+                backgroundColor: "#f9fafb",
+                color: "#374151",
+                lineHeight: 1.6
               }}
             />
           </div>
@@ -967,12 +1205,12 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
               background: isLoading ? "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)" : "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
               color: "white",
               border: "none",
-              borderRadius: 10,
+              borderRadius: 8,
               fontSize: 14,
-              fontWeight: 600,
+              fontWeight: 500,
               cursor: isLoading ? "not-allowed" : "pointer",
               transition: "all 0.2s",
-              boxShadow: "0 4px 14px rgba(59, 130, 246, 0.35)",
+              boxShadow: "0 2px 8px rgba(59, 130, 246, 0.25)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -988,19 +1226,19 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                 深度解析中...
               </>
             ) : (
-              <>🤖 DeepSeek 深度解析</>
+              <>🤖 深度解析</>
             )}
           </button>
 
           {aiResponse && (
-            <div style={{ marginTop: 16, padding: 14, backgroundColor: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#0f172a", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ marginTop: 16, padding: 16, backgroundColor: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: "#374151", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                 <span>✨</span> AI 解读
               </div>
               <div style={{
                 fontSize: 13,
                 lineHeight: 1.6,
-                color: "#334155",
+                color: "#4b5563",
                 whiteSpace: "pre-wrap"
               }}>
                 {aiResponse}
@@ -1008,9 +1246,9 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
             </div>
           )}
 
-          <div style={{ marginTop: 16 }}>
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div style={{ marginTop: 20 }}>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 题型
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1023,12 +1261,12 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                       borderRadius: 16,
                       fontSize: 12,
                       border: "1px solid",
-                      borderColor: questionType === type ? "#3b82f6" : "#e2e8f0",
-                      backgroundColor: questionType === type ? "#dbeafe" : "white",
-                      color: questionType === type ? "#2563eb" : "#64748b",
+                      borderColor: questionType === type ? "#3b82f6" : "#e5e7eb",
+                      backgroundColor: questionType === type ? "#eff6ff" : "#ffffff",
+                      color: questionType === type ? "#2563eb" : "#6b7280",
                       cursor: "pointer",
                       transition: "all 0.15s",
-                      fontWeight: questionType === type ? 600 : 400
+                      fontWeight: questionType === type ? 500 : 400
                     }}
                   >
                     {type}
@@ -1038,7 +1276,7 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
             </div>
 
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <div style={{ fontSize: 11, fontWeight: 500, color: "#6b7280", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 错因
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1051,12 +1289,12 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                       borderRadius: 16,
                       fontSize: 12,
                       border: "1px solid",
-                      borderColor: errorCategory === category ? "#ec4899" : "#e2e8f0",
-                      backgroundColor: errorCategory === category ? "#fce7f3" : "white",
-                      color: errorCategory === category ? "#db2777" : "#64748b",
+                      borderColor: errorCategory === category ? "#ec4899" : "#e5e7eb",
+                      backgroundColor: errorCategory === category ? "#fdf2f8" : "#ffffff",
+                      color: errorCategory === category ? "#db2777" : "#6b7280",
                       cursor: "pointer",
                       transition: "all 0.15s",
-                      fontWeight: errorCategory === category ? 600 : 400
+                      fontWeight: errorCategory === category ? 500 : 400
                     }}
                   >
                     {category}
@@ -1080,9 +1318,9 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
                     padding: "5px 10px",
                     borderRadius: 16,
                     fontSize: 12,
-                    border: "1px dashed #cbd5e1",
+                    border: "1px dashed #d1d5db",
                     backgroundColor: "transparent",
-                    color: "#94a3b8",
+                    color: "#9ca3af",
                     cursor: "pointer",
                     transition: "all 0.15s"
                   }}
@@ -1098,16 +1336,16 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
             style={{
               width: "100%",
               marginTop: 20,
-              padding: "13px 16px",
+              padding: "12px 16px",
               backgroundColor: "#10b981",
               color: "white",
               border: "none",
-              borderRadius: 10,
+              borderRadius: 8,
               fontSize: 14,
-              fontWeight: 600,
+              fontWeight: 500,
               cursor: "pointer",
               transition: "all 0.2s",
-              boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+              boxShadow: "0 2px 6px rgba(16, 185, 129, 0.25)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1121,15 +1359,21 @@ ${myQuestion ? `【我的疑问】\n${myQuestion}\n` : ""}
             onClick={onClose}
             style={{
               width: "100%",
-              marginTop: 10,
+              marginTop: 12,
               padding: "10px 16px",
               backgroundColor: "transparent",
-              color: "#94a3b8",
+              color: "#9ca3af",
               border: "none",
               borderRadius: 8,
               fontSize: 13,
               cursor: "pointer",
-              transition: "background-color 0.2s"
+              transition: "all 0.15s"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "#6b7280"
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "#9ca3af"
             }}
           >
             关闭
